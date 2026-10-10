@@ -124,10 +124,10 @@ CHAPTERS=[(0,'01 / CREATION','创建'),(29.709,'02 / DEVOTION','献出自我'),
 
 class Film:
     def __init__(self):
-        self.lyrics=json.loads((RES/'lyrics.json').read_text())
+        self.lyrics=json.loads((RES/'lyrics.json').read_text(encoding='utf-8'))
         self.times=[x['time'] for x in self.lyrics]
-        self.spectrum=json.loads((RES/'spectrum.json').read_text())
-        self.config=json.loads((RES/'config.json').read_text())
+        self.spectrum=json.loads((RES/'spectrum.json').read_text(encoding='utf-8'))
+        self.config=json.loads((RES/'config.json').read_text(encoding='utf-8'))
     def cue(self,t):
         idx=bisect.bisect_right(self.times,t)-1
         e=self.lyrics[idx] if idx>=0 else None
