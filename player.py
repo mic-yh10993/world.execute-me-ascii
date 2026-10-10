@@ -2,10 +2,22 @@
 """A terminal music video. Python standard library + macOS AVFoundation."""
 from __future__ import annotations
 import argparse, bisect, json, math, os, select, shutil, signal, subprocess
-import sys, termios, threading, time, tty, unicodedata
+import sys, threading, time, unicodedata
 from pathlib import Path
 
+WIN32 = (os.name == 'nt')
+try:
+    import termios
+    import tty
+except ImportError:  # Windows has neither
+    termios = None
+    tty = None
+if WIN32:
+    import console_win
+
 ROOT = Path(__file__).resolve().parent
+# Frozen (PyInstaller) builds carry their resources inside the bundle.
+RES = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else ROOT
 TAU = math.tau
 ESC = '\x1b['
 DIM, NORMAL, BRIGHT, WHITE, RED = 0, 1, 2, 3, 4
@@ -112,10 +124,10 @@ CHAPTERS=[(0,'01 / CREATION','创建'),(29.709,'02 / DEVOTION','献出自我'),
 
 class Film:
     def __init__(self):
-        self.lyrics=json.loads((ROOT/'lyrics.json').read_text())
+        self.lyrics=json.loads((RES/'lyrics.json').read_text())
         self.times=[x['time'] for x in self.lyrics]
-        self.spectrum=json.loads((ROOT/'spectrum.json').read_text())
-        self.config=json.loads((ROOT/'config.json').read_text())
+        self.spectrum=json.loads((RES/'spectrum.json').read_text())
+        self.config=json.loads((RES/'config.json').read_text())
     def cue(self,t):
         idx=bisect.bisect_right(self.times,t)-1
         e=self.lyrics[idx] if idx>=0 else None
@@ -194,11 +206,21 @@ class Film:
         c.box(x,y,w,len(lines)+3,BRIGHT)
         for i,s in enumerate(lines):c.put(x+3,y+2+i,s,WHITE if i==0 else NORMAL)
 
+def _audio_engine_command(path):
+    # The player and its audio engine ship in one exe: the engine runs as a
+    # hidden subprocess mode of the same binary. Unfrozen Windows runs use
+    # the pure-Python engine directly; macOS keeps the Swift audio-clock.
+    if getattr(sys, 'frozen', False):
+        return [sys.executable, '--audio-engine', str(path)]
+    if WIN32:
+        return [sys.executable, str(ROOT/'audio_engine.py'), str(path)]
+    return [str(ROOT/'audio-clock'), str(path)]
+
 class Audio:
     def __init__(self,path):
         self.state={'time':0.,'duration':0.,'playing':False}
         self.last=time.monotonic(); self.error=''
-        self.proc=subprocess.Popen([str(ROOT/'audio-clock'),str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
+        self.proc=subprocess.Popen(_audio_engine_command(path),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
         threading.Thread(target=self.read,daemon=True).start()
         deadline=time.monotonic()+8
         while not self.state['duration']:
@@ -220,23 +242,28 @@ class Audio:
             except (BrokenPipeError,subprocess.TimeoutExpired):self.proc.terminate()
 
 def run(args,film):
-    if not sys.stdin.isatty():raise RuntimeError('请在 macOS 终端中运行。')
-    # Write to the controlling terminal even when a command wrapper pipes stdout.
-    terminal_fd=os.open('/dev/tty',os.O_RDWR)
-    sys.stdout=os.fdopen(os.dup(terminal_fd),'w',encoding='utf-8',buffering=1)
-    os.close(terminal_fd)
+    if not sys.stdin.isatty():raise RuntimeError('请在系统终端（Windows 终端 / 命令提示符）中运行。')
+    if WIN32:
+        # Enable ANSI escapes + UTF-8 on the Windows console.
+        console_win.setup()
+    else:
+        # Write to the controlling terminal even when a command wrapper pipes stdout.
+        terminal_fd=os.open('/dev/tty',os.O_RDWR)
+        sys.stdout=os.fdopen(os.dup(terminal_fd),'w',encoding='utf-8',buffering=1)
+        os.close(terminal_fd)
     audio_path=Path(args.audio).expanduser().resolve() if args.audio else Path(film.config['audio'])
-    if not args.audio and not audio_path.is_absolute():audio_path=ROOT/audio_path
+    if not args.audio and not audio_path.is_absolute():audio_path=RES/audio_path
     if not audio_path.is_file():raise RuntimeError(f'找不到音频：{audio_path}\n请使用 --audio 指定 MP3 文件。')
     audio=Audio(audio_path)
-    original=termios.tcgetattr(sys.stdin.fileno())
+    original=termios.tcgetattr(sys.stdin.fileno()) if termios else None
     offset=args.offset if args.offset is not None else film.config.get('subtitle_offset',0.)
     started=args.autoplay or args.paused; paused=not args.autoplay; help_on=False; volume=.75; ready=not started
     current=args.start; playing_seen=False; frames=0; max_render=0.; size_last=None; report=[]
     def quit_signal(*_):raise KeyboardInterrupt
-    old_signals={s:signal.signal(s,quit_signal) for s in (signal.SIGTERM,signal.SIGHUP)}
+    watched=[s for s in (signal.SIGTERM,getattr(signal,'SIGHUP',None)) if s is not None]
+    old_signals={s:signal.signal(s,quit_signal) for s in watched}
     try:
-        tty.setcbreak(sys.stdin.fileno())
+        if tty:tty.setcbreak(sys.stdin.fileno())
         sys.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J');sys.stdout.flush()
         audio.command(f'seek {args.start}')
         if args.autoplay:audio.command('play')
@@ -244,7 +271,7 @@ def run(args,film):
         while True:
             begin=time.monotonic()
             state=audio.state.copy();current=state['time']
-            if audio.error:raise RuntimeError('音频输出不可用，请检查 macOS 声音输出设备。')
+            if audio.error:raise RuntimeError('音频输出不可用，请检查系统声音输出设备。')
             if audio.proc.poll() is not None:raise RuntimeError('音频引擎意外退出。')
             if begin-audio.last>2:raise RuntimeError('音频时钟停止更新。')
             if state['playing']:playing_seen=True
@@ -253,7 +280,7 @@ def run(args,film):
                 audio.command(f'seek {state["duration"]-.02}')
             if current>=state['duration']-.05 and not state['playing'] and started:paused=True
             # Read the PTY itself. Shell COLUMNS/LINES can be stale after fullscreen.
-            try:w,h=os.get_terminal_size(sys.stdin.fileno())
+            try:w,h=console_win.terminal_size() if WIN32 else os.get_terminal_size(sys.stdin.fileno())
             except OSError:w,h=100,36
             w=min(w,240);h=min(h,85)
             # Leave the last column unused. This avoids terminal autowrap artifacts.
@@ -266,7 +293,9 @@ def run(args,film):
             next_frame+=1/args.fps
             delay=max(0,next_frame-time.monotonic())
             if delay==0:next_frame=time.monotonic()
-            if select.select([sys.stdin],[],[],delay)[0]:
+            if WIN32:
+                keybuf+=console_win.read_keys(delay)
+            elif select.select([sys.stdin],[],[],delay)[0]:
                 keybuf+=os.read(sys.stdin.fileno(),128).decode('utf-8',errors='ignore')
                 if keybuf=='\x1b':
                     if select.select([sys.stdin],[],[],.035)[0]:keybuf+=os.read(sys.stdin.fileno(),32).decode(errors='ignore')
@@ -295,13 +324,21 @@ def run(args,film):
                         elif key=='-':volume=max(0,volume-.05);audio.command(f'volume {volume}')
     finally:
         audio.close()
-        termios.tcsetattr(sys.stdin.fileno(),termios.TCSADRAIN,original)
+        if termios:termios.tcsetattr(sys.stdin.fileno(),termios.TCSADRAIN,original)
         sys.stdout.write('\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l');sys.stdout.flush()
         for s,handler in old_signals.items():signal.signal(s,handler)
         if args.report:
             Path(args.report).write_text(json.dumps({'frames':frames,'last_time':current,'max_frame_render_seconds':max_render,'samples':report},indent=2))
 
 def main():
+    if '--audio-engine' in sys.argv:
+        # Hidden subprocess mode: the bundled audio engine (same protocol as
+        # the macOS Swift audio-clock). Not for direct use.
+        from audio_engine import run_engine
+        sys.exit(run_engine(sys.argv[sys.argv.index('--audio-engine')+1]))
+    if WIN32:
+        # UTF-8 stdout even for --snapshot / piped output.
+        console_win.setup()
     p=argparse.ArgumentParser(description='world.execute(me); / bilingual terminal MV')
     p.add_argument('--audio');p.add_argument('--start',type=float,default=0.)
     p.add_argument('--autoplay',action='store_true');p.add_argument('--fps',type=int,default=24)

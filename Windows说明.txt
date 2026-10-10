@@ -1,0 +1,24 @@
+world.execute(me); —ascii（Windows 版）使用说明
+============================================
+
+
+双击「运行Windows版.bat」，或直接双击 world-execute-mv.exe。
+音乐、动画、字幕、频谱数据都已打包进 exe，无需安装、无需联网。
+
+
+Windows 10 或更新版本（推荐使用 Windows 终端，窗口 128 列 × 44 行以上效果最好，
+至少 64 列 × 24 行）。不需要安装 Python。
+
+
+空格 开始／暂停
+左／右 后退／前进 5 秒
+R 从头播放
+Q 退出
+H 显示全部帮助
+1–5 跳转章节
+
+
+播放时会把内嵌音乐解包到临时目录，正常退出后自动清理。
+原曲与歌词：Mili《world.execute(me);》。
+本 Windows 版由 v1.0.0 移植构建：终端输入改用 Windows 控制台 API，
+音频引擎改用 miniaudio（just_playback），播放逻辑与 macOS 版一致。
