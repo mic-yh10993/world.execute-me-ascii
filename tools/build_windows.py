@@ -58,6 +58,8 @@ def build_exe():
            '--add-data', f'lyrics.json{sep}.',
            '--add-data', f'spectrum.json{sep}.',
            '--collect-all', 'just_playback',
+           '--collect-all', 'cffi',
+           '--hidden-import', '_cffi_backend',
            '--hidden-import', 'audio_engine',
            '--hidden-import', 'console_win',
            'player.py']

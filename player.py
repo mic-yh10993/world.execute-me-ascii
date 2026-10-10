@@ -221,10 +221,17 @@ class Audio:
         self.state={'time':0.,'duration':0.,'playing':False}
         self.last=time.monotonic(); self.error=''
         self.proc=subprocess.Popen(_audio_engine_command(path),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
-        threading.Thread(target=self.read,daemon=True).start()
+        self._reader=threading.Thread(target=self.read,daemon=True)
+        self._reader.start()
         deadline=time.monotonic()+8
         while not self.state['duration']:
-            if self.proc.poll() is not None:raise RuntimeError(self.proc.stderr.read() or '音频引擎退出')
+            if self.error:raise RuntimeError('音频引擎报错：'+self.error)
+            if self.proc.poll() is not None:
+                # Give the reader a moment to consume the engine's last words
+                # so its {"error": ...} message isn't lost.
+                self._reader.join(timeout=1.0)
+                detail=(self.proc.stderr.read() or '').strip()
+                raise RuntimeError(detail or (('音频引擎报错：'+self.error) if self.error else '音频引擎退出'))
             if time.monotonic()>deadline:raise RuntimeError('音频引擎没有响应')
             time.sleep(.01)
     def read(self):
