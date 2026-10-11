@@ -306,29 +306,29 @@ def run(args,film):
                 keybuf+=os.read(sys.stdin.fileno(),128).decode('utf-8',errors='ignore')
                 if keybuf=='\x1b':
                     if select.select([sys.stdin],[],[],.035)[0]:keybuf+=os.read(sys.stdin.fileno(),32).decode(errors='ignore')
-                while keybuf:
-                    if keybuf.startswith(('\x1b[C','\x1b[D')):
-                        right=keybuf[2]=='C';keybuf=keybuf[3:]
-                        audio.command(f'seek {min(state["duration"]-.05,max(0,current+(5 if right else -5)))}')
-                    else:
-                        key=keybuf[0];keybuf=keybuf[1:]
-                        if key in ('q','Q','\x1b','\x03'):return
-                        if key in (' ','\r','\n'):
-                            if not started:started=True;ready=False;paused=False;audio.command('play')
-                            else:paused=not paused;audio.command('pause' if paused else 'play')
-                        elif key in ('r','R'):
-                            audio.command('seek 0');audio.command('play');started=True;ready=False;paused=False
-                        elif key in '12345':
-                            audio.command(f'seek {CHAPTERS[int(key)-1][0]}');audio.command('play');started=True;ready=False;paused=False
-                        elif key=='[':offset=round(offset+.1,2)
-                        elif key==']':offset=round(offset-.1,2)
-                        elif key in ',.':
-                            i=bisect.bisect_right(film.times,current+.03)-1
-                            i=min(len(film.times)-1,max(0,i+(1 if key=='.' else -1)))
-                            audio.command(f'seek {film.times[i]}');started=True;ready=False
-                        elif key in 'hH':help_on=not help_on
-                        elif key in '+=':volume=min(1,volume+.05);audio.command(f'volume {volume}')
-                        elif key=='-':volume=max(0,volume-.05);audio.command(f'volume {volume}')
+            while keybuf:
+                if keybuf.startswith(('\x1b[C','\x1b[D')):
+                    right=keybuf[2]=='C';keybuf=keybuf[3:]
+                    audio.command(f'seek {min(state["duration"]-.05,max(0,current+(5 if right else -5)))}')
+                else:
+                    key=keybuf[0];keybuf=keybuf[1:]
+                    if key in ('q','Q','\x1b','\x03'):return
+                    if key in (' ','\r','\n'):
+                        if not started:started=True;ready=False;paused=False;audio.command('play')
+                        else:paused=not paused;audio.command('pause' if paused else 'play')
+                    elif key in ('r','R'):
+                        audio.command('seek 0');audio.command('play');started=True;ready=False;paused=False
+                    elif key in '12345':
+                        audio.command(f'seek {CHAPTERS[int(key)-1][0]}');audio.command('play');started=True;ready=False;paused=False
+                    elif key=='[':offset=round(offset+.1,2)
+                    elif key==']':offset=round(offset-.1,2)
+                    elif key in ',.':
+                        i=bisect.bisect_right(film.times,current+.03)-1
+                        i=min(len(film.times)-1,max(0,i+(1 if key=='.' else -1)))
+                        audio.command(f'seek {film.times[i]}');started=True;ready=False
+                    elif key in 'hH':help_on=not help_on
+                    elif key in '+=':volume=min(1,volume+.05);audio.command(f'volume {volume}')
+                    elif key=='-':volume=max(0,volume-.05);audio.command(f'volume {volume}')
     finally:
         audio.close()
         if termios:termios.tcsetattr(sys.stdin.fileno(),termios.TCSADRAIN,original)
