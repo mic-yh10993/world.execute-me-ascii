@@ -18,6 +18,8 @@ if WIN32:
 ROOT = Path(__file__).resolve().parent
 # Frozen (PyInstaller) builds carry their resources inside the bundle.
 RES = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else ROOT
+# Windows build tag: bump on every rebuild so the running build is identifiable.
+WIN_BUILD_TAG = 'win-b6'
 TAU = math.tau
 ESC = '\x1b['
 DIM, NORMAL, BRIGHT, WHITE, RED = 0, 1, 2, 3, 4
@@ -196,6 +198,7 @@ class Film:
         c.big(max(top+2,cy-4),'EXECUTE(ME);',BRIGHT)
         c.center(cy+3,'M I L I',WHITE)
         c.center(min(bottom,cy+6),'[ SPACE / ENTER TO START ]',BRIGHT)
+        if WIN32:c.center(min(bottom,cy+8),'windows '+WIN_BUILD_TAG,DIM)
     def help(self,c,offset):
         lines=['CONTROLS / 操作','SPACE / ENTER   播放或暂停','LEFT / RIGHT    后退或前进 5 秒',
                'R               从头播放','1 2 3 4 5       跳转五个章节','[ / ]           字幕提前 / 延后 0.1 秒',
